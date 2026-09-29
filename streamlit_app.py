@@ -2,78 +2,63 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from pytrends.request import TrendReq
+from gnews import GNews
+from datetime import datetime
 
-# --- SAYFA AYARLARI ---
-st.set_page_config(
-    page_title="Piyasa & Perakende Yoğunluk Paneli",
-    page_icon="📈",
-    layout="wide"
-)
+# Sayfa Yapılandırması
+st.set_page_config(page_title="Canlı Perakende & Haber Portalı", layout="wide")
 
-st.title("📈 Canlı Perakende & Beyaz Eşya Tüketici İlgisi")
-st.caption("Otomatik Güncellenen Canlı Piyasa & Takip Paneli")
+st.title("🌐 Canlı Perakende Arama Trendleri & Web Haber Taraması")
+st.caption("Google Trends ve Web Haber Kaynaklarından Anlık Veri")
 
-# --- CANLI VERİ ÇEKME MOTORU ---
-@st.cache_data(ttl=3600)
-def get_live_market_data():
-    pytrends = TrendReq(hl='tr-TR', tz=180)
+# Tab'lar (Sekmeler)
+tab1, tab2 = st.tabs(["📊 Google Arama Trendleri", "📰 Canlı Web Haberleri & Kaynaklar"])
+
+# ---------------------------------------------------------
+# SEKME 1: GOOGLE TRENDS
+# ---------------------------------------------------------
+with tab1:
+    st.subheader("Marka ve Perakende Arama Yoğunluğu")
     
-    # 1. Elektronik Perakende Grubu
-    kw_electronics = ['Vatan Bilgisayar', 'Teknosa', 'MediaMarkt']
-    pytrends.build_payload(kw_electronics, cat=0, timeframe='today 3-m', geo='TR')
-    df_elec = pytrends.interest_over_time()
-    if 'isPartial' in df_elec.columns:
-        df_elec = df_elec.drop(columns=['isPartial'])
-        
-    # 2. Beyaz Eşya Grubu
-    kw_whitegoods = ['Arçelik', 'Beko', 'Bosch', 'Siemens']
-    pytrends.build_payload(kw_whitegoods, cat=0, timeframe='today 3-m', geo='TR')
-    df_wg = pytrends.interest_over_time()
-    if 'isPartial' in df_wg.columns:
-        df_wg = df_wg.drop(columns=['isPartial'])
-        
-    return df_elec, df_wg
+    @st.cache_data(ttl=3600)
+    def get_trends_data():
+        pytrends = TrendReq(hl='tr-TR', tz=180)
+        kw_list = ['Vatan Bilgisayar', 'Teknosa', 'MediaMarkt', 'Arçelik', 'Beko']
+        pytrends.build_payload(kw_list, timeframe='today 3-m', geo='TR')
+        df = pytrends.interest_over_time()
+        if 'isPartial' in df.columns:
+            df = df.drop(columns=['isPartial'])
+        return df
 
-# Veriyi Çek ve Göster
-try:
-    with st.spinner('Canlı piyasa verileri yükleniyor...'):
-        df_elec, df_wg = get_live_market_data()
+    try:
+        df_trends = get_trends_data()
+        fig = px.line(df_trends, title="Son 3 Ay Arama Trendleri", labels={"value": "İlgi Endeksi", "date": "Tarih"})
+        st.plotly_chart(fig, use_container_width=True)
+    except Exception as e:
+        st.error(f"Trends verisi çekilirken hata oluştu: {e}")
+
+# ---------------------------------------------------------
+# SEKME 2: CANLI WEB HABERLERİ
+# ---------------------------------------------------------
+with tab2:
+    st.subheader("Web'den Anlık Perakende & Marka Haberleri")
     
-    # Üst Özet Kartları
-    col1, col2, col3 = st.columns(3)
-    latest_elec = df_elec.iloc[-1]
-    latest_wg = df_wg.iloc[-1]
+    selected_brand = st.selectbox(
+        "Hangi marka/sektör haberlerini taramak istersiniz?",
+        ['Vatan Bilgisayar', 'Teknosa', 'MediaMarkt', 'Arçelik', 'Beko', 'Alışveriş Kredisi']
+    )
     
-    col1.metric(label="Elektronik Perakende Lideri", value=latest_elec.idxmax())
-    col2.metric(label="Beyaz Eşya İlgi Lideri", value=latest_wg.idxmax())
-    col3.metric(label="Son Güncelleme", value=df_elec.index[-1].strftime('%d.%m.%Y'))
-
-    st.divider()
-
-    # Grafik Sekmeleri
-    tab1, tab2 = st.tabs(["📱 Elektronik Perakende", "❄️ Beyaz Eşya"])
-
-    with tab1:
-        fig_elec = px.line(
-            df_elec, 
-            x=df_elec.index, 
-            y=df_elec.columns,
-            labels={'value': 'Yoğunluk Endeksi (0-100)', 'date': 'Tarih', 'variable': 'Marka'},
-            title="Vatan Bilgisayar vs Teknosa vs MediaMarkt"
-        )
-        fig_elec.update_layout(template="plotly_white")
-        st.plotly_chart(fig_elec, use_container_width=True)
-
-    with tab2:
-        fig_wg = px.line(
-            df_wg, 
-            x=df_wg.index, 
-            y=df_wg.columns,
-            labels={'value': 'Yoğunluk Endeksi (0-100)', 'date': 'Tarih', 'variable': 'Marka'},
-            title="Arçelik vs Beko vs Bosch vs Siemens"
-        )
-        fig_wg.update_layout(template="plotly_white")
-        st.plotly_chart(fig_wg, use_container_width=True)
-
-except Exception as e:
-    st.error(f"Veri yüklenirken hata oluştu: {str(e)}")
+    if st.button("Web'i Tara ve Haberleri Getir"):
+        with st.spinner(f"'{selected_brand}' hakkında haberler taranıyor..."):
+            google_news = GNews(language='tr', country='TR', period='7d', max_results=10)
+            news_items = google_news.get_news(selected_brand)
+            
+            if news_items:
+                for item in news_items:
+                    st.markdown(f"### [{item['title']}]({item['url']})")
+                    st.write(f"**Kaynak:** {item['publisher']['title']} | **Tarih:** {item['published date']}")
+                    st.write(item['description'])
+                    st.markdown(f"[Haberin Kaynağına Git 🔗]({item['url']})")
+                    st.divider()
+            else:
+                st.info("Son 7 güne ait ilgili haber bulunamadı.")
